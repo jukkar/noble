@@ -10,10 +10,35 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
 
+#define HCI_CHANNEL_USER	1
+
 int lastSignal = 0;
 
 static void signalHandler(int signal) {
   lastSignal = signal;
+}
+
+static int create_socket(uint16_t index, uint16_t channel)
+{
+  struct sockaddr_hci addr;
+  int fd;
+
+  fd = socket(PF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK,
+	      BTPROTO_HCI);
+  if (fd < 0)
+    return -1;
+
+  memset(&addr, 0, sizeof(addr));
+  addr.hci_family = AF_BLUETOOTH;
+  addr.hci_dev = index;
+  addr.hci_channel = channel;
+
+  if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+    close(fd);
+    return -1;
+  }
+
+  return fd;
 }
 
 int main(int argc, const char* argv[])
@@ -72,9 +97,11 @@ int main(int argc, const char* argv[])
     hciDeviceId = 0; // use device 0, if device id is invalid
   }
 
-  // setup HCI socket
-  hciSocket = hci_open_dev(hciDeviceId);
-
+  // setup HCI socket, try first the user channel socket (available from
+  // kernel 3.13 onwards)
+  hciSocket = create_socket(hciDeviceId, HCI_CHANNEL_USER);
+  if (hciSocket < 0)
+    hciSocket = hci_open_dev(hciDeviceId);
   if (hciSocket == -1) {
     printf("adapterState unsupported\n");
     return -1;
